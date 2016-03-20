@@ -56,7 +56,7 @@ func serverAccept(listener net.Listener, wg *sync.WaitGroup, stopper chan bool, 
 			// Check if we're supposed to stop
 			select {
 			case _ = <-stopper:
-				logger.Printf("closing socket with cert serial no. %d (expiring %s)", leaf.SerialNumber, leaf.NotAfter.String())
+				logger.Printf("closing socket with cert %s", fingerprint(leaf))
 				return
 			default:
 			}

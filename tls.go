@@ -17,13 +17,29 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"io/ioutil"
 
 	"golang.org/x/crypto/pkcs12"
 )
+
+// fingerprint reads an x509.Certificate and computes the SHA-256 fingerprint.
+func fingerprint(cert *x509.Certificate) string {
+	var out bytes.Buffer
+	hash := sha256.Sum256(cert.Raw)
+	for i, b := range hash {
+		out.WriteString(fmt.Sprintf("%02x", b))
+		if i < sha256.Size-1 {
+			out.WriteString(":")
+		}
+	}
+	return out.String()
+}
 
 // buildConfig reads command-line options and builds a tls.Config
 func buildConfig(keystorePath, keystorePass, caBundlePath string) (*tls.Config, error) {

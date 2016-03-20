@@ -164,7 +164,8 @@ func run(args []string) {
 	initLogger()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	app.Version(fmt.Sprintf("rev %s built with %s", buildRevision, runtime.Version()))
+	version := fmt.Sprintf("rev %s built with %s", buildRevision, runtime.Version())
+	app.Version(version)
 	app.Validate(validateFlags)
 	command := kingpin.MustParse(app.Parse(args))
 
@@ -205,7 +206,7 @@ func run(args []string) {
 			fmt.Fprintf(os.Stderr, "error: %s", err)
 			os.Exit(1)
 		}
-		logger.Printf("starting ghostunnel in server mode")
+		logger.Printf("starting ghostunnel in server mode (%s)", version)
 
 		dial, err := serverBackendDialer()
 		if err != nil {
@@ -224,7 +225,7 @@ func run(args []string) {
 			fmt.Fprintf(os.Stderr, "error: %s", err)
 			os.Exit(1)
 		}
-		logger.Printf("starting ghostunnel in client mode")
+		logger.Printf("starting ghostunnel in client mode (%s)", version)
 
 		// In client mode, we handle reload using a channel. When the signal handler
 		// writes to this channel, we reload the status endpoint and rebuild the tls
@@ -297,7 +298,8 @@ func serverListen(started chan bool, context *Context) {
 	}
 
 	listener := tls.NewListener(rawListener, tlsConfigProxy)
-	logger.Printf("listening on %s", *serverListenAddress)
+	logger.Printf("listening on %s, with certificate expiring on %s", *serverListenAddress, leaf.NotAfter.String())
+	logger.Printf("fingerprint is %s", fingerprint(leaf))
 	defer listener.Close()
 
 	handlers := &sync.WaitGroup{}
@@ -312,8 +314,6 @@ func serverListen(started chan bool, context *Context) {
 
 	started <- true
 	context.status.Listening()
-
-	logger.Printf("listening with cert serial no. %d (expiring %s)", leaf.SerialNumber, leaf.NotAfter.String())
 	handlers.Wait()
 }
 
