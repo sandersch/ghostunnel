@@ -17,26 +17,22 @@
 package main
 
 import (
-	"net"
+	"io"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
+
+	"github.com/csstaub/reloadable-tls"
 )
 
-// signalHandler for server mode. Listens for incoming SIGTERM or SIGUSR1
-// signals. If we get SIGTERM, stop listening for new connections and gracefully
-// terminate the process. If we get SIGUSR1, reload certificates.
-func serverSignalHandler(listener net.Listener, statusListener net.Listener, stopper chan bool, context *Context) {
+// signalHandler. Listens for incoming SIGTERM or SIGUSR1 signals. If we get
+// SIGTERM, stop listening for new connections and gracefully terminate the
+// process. If we get SIGUSR1, reload certificates.
+func signalHandler(proxy *proxy, reloadables []reloadable.Reloadable, closeables []io.Closer, context *Context) {
 	signals := make(chan os.Signal)
 	signal.Notify(signals, syscall.SIGUSR1, syscall.SIGTERM)
-	defer func() {
-		stopper <- true
-		signal.Stop(signals)
-		listener.Close()
-		if statusListener != nil {
-			statusListener.Close()
-		}
-	}()
+	defer signal.Stop(signals)
 
 	for {
 		// Wait for a signal
@@ -44,65 +40,37 @@ func serverSignalHandler(listener net.Listener, statusListener net.Listener, sto
 		case sig := <-signals:
 			switch sig {
 			case syscall.SIGTERM:
-				logger.Printf("received SIGTERM, stopping listener")
+				logger.Printf("received SIGTERM, shutting down")
+				atomic.StoreInt32(&proxy.quit, 1)
+				for _, closeable := range closeables {
+					closeable.Close()
+				}
+				logger.Printf("done with signal handler")
 				return
 
 			case syscall.SIGUSR1:
-				logger.Printf("received SIGUSR1, reloading listener")
-				if serverReloadListener(context) {
-					return
+				logger.Printf("received SIGUSR1, reloading certificates")
+				context.status.Reloading()
+				for _, reloadable := range reloadables {
+					err := reloadable.Reload()
+					if err != nil {
+						logger.Printf("error reloading: %s", err)
+					}
+				}
+				logger.Printf("reloading complete")
+				context.status.Listening()
+			}
+		case _ = <-context.watcher:
+			logger.Printf("reloading certificates (timer fired)")
+			context.status.Reloading()
+			for _, reloadable := range reloadables {
+				err := reloadable.Reload()
+				if err != nil {
+					logger.Printf("error reloading: %s", err)
 				}
 			}
-		case _ = <-context.watcher:
-			logger.Printf("reloading listener...")
-			if serverReloadListener(context) {
-				return
-			}
-		}
-	}
-}
-
-// Create a new listener
-func serverReloadListener(context *Context) bool {
-	context.listeners.Add(1)
-	context.status.Reloading()
-	started := make(chan bool, 1)
-	go serverListen(started, context)
-
-	// Wait for new listener to complete startup and return status
-	up := <-started
-	if !up {
-		context.status.Listening()
-		logger.Printf("failed to reload certificates")
-	}
-	return up
-}
-
-// signalHandler for client mode. Listens for incoming SIGTERM or SIGUSR1
-// signals. If we get SIGTERM, stop listening for new connections and gracefully
-// terminate the process. If we get SIGUSR1, reload certificates.
-func clientSignalHandler(listener net.Listener, reloadClient chan bool, stopper chan bool, reloadStatus chan bool, context *Context) {
-	signals := make(chan os.Signal)
-	signal.Notify(signals, syscall.SIGUSR1, syscall.SIGTERM)
-	for {
-		select {
-		case sig := <-signals:
-			switch sig {
-			case syscall.SIGTERM:
-				logger.Printf("received SIGTERM, stopping listener")
-				stopper <- true
-				listener.Close()
-				return
-
-			case syscall.SIGUSR1:
-				logger.Printf("received SIGUSR1, reloading client")
-				reloadClient <- true
-				reloadStatus <- true
-			}
-		case _ = <-context.watcher:
-			logger.Printf("reloading client...")
-			reloadClient <- true
-			reloadStatus <- true
+			logger.Printf("reloading complete")
+			context.status.Listening()
 		}
 	}
 }

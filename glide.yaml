@@ -11,3 +11,4 @@ import:
   subpackages:
   - assert
 - package: github.com/square/go-sq-metrics
+- package: github.com/csstaub/reloadable-tls

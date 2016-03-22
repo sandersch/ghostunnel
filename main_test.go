@@ -22,7 +22,6 @@ import (
 	"net"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -144,38 +143,4 @@ func TestServerBackendDialerError(t *testing.T) {
 	*serverForwardAddress = "unix:does-not-exist"
 	_, err = serverBackendDialer()
 	assert.NotNil(t, err, "invalid forward address should not have dialer")
-}
-
-func TestClientBackendDialerError(t *testing.T) {
-	*keystorePath = ""
-	_, err := clientBackendDialer(nil)
-	assert.NotNil(t, err, "cannot create client dialer with invalid keystore")
-}
-
-func waitWithTimeout(started chan bool) bool {
-	select {
-	case up := <-started:
-		return up
-	case <-time.After(10 * time.Second):
-		panic("timed out waiting for channel")
-	}
-}
-
-func TestClientListenError(t *testing.T) {
-	started := make(chan bool, 1)
-	*keystorePath = ""
-	*statusAddr, _ = net.ResolveTCPAddr("tcp", "127.0.0.1:8080")
-	clientListen(started, nil, nil)
-
-	if waitWithTimeout(started) {
-		t.Error("client listener should not start with invalid params")
-	}
-
-	*statusAddr = nil
-	*clientListenAddress = "invalid"
-	clientListen(started, nil, nil)
-
-	if waitWithTimeout(started) {
-		t.Error("client listener should not start with invalid params")
-	}
 }
